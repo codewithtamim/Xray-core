@@ -14,6 +14,14 @@ import (
 )
 
 func checkFile(file, code string) error {
+	if strings.HasSuffix(file, ".mmdb") {
+		_, err := openMMDB(file)
+		if err != nil {
+			return errors.New("failed to open mmdb ", file).Base(err)
+		}
+		return nil
+	}
+
 	r, err := filesystem.OpenAsset(file)
 	if err != nil {
 		return errors.New("failed to open ", file).Base(err)
@@ -25,6 +33,7 @@ func checkFile(file, code string) error {
 	return nil
 }
 
+// seperate func for mmdb so we dont mix logic with .dat files
 func loadFile(file, code string) ([]byte, error) {
 	runtime.GC() // peak mem
 	r, err := filesystem.OpenAsset(file)

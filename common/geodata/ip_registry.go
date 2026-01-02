@@ -33,6 +33,9 @@ func (r *IPRegistry) Reload() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// close mmdbs so we reload them fresh
+	closeAllMMDB()
+
 	errors.LogInfo(context.Background(), "reloading GeoIP data for ", len(r.matchers), " IP matcher(s)")
 
 	factory := newIPSetFactory()

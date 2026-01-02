@@ -953,6 +953,8 @@ func buildOptimizedIPMatcher(f *IPSetFactory, rules []*IPRule) (IPMatcher, error
 	negCustom := make([]*CIDR, 0, n)
 	posGeoip := make([]*GeoIPRule, 0, n)
 	negGeoip := make([]*GeoIPRule, 0, n)
+	posMMDB := make([]*GeoIPRule, 0, n)
+	negMMDB := make([]*GeoIPRule, 0, n)
 
 	for _, r := range rules {
 		switch v := r.Value.(type) {
@@ -963,17 +965,26 @@ func buildOptimizedIPMatcher(f *IPSetFactory, rules []*IPRule) (IPMatcher, error
 				negCustom = append(negCustom, v.Custom.Cidr)
 			}
 		case *IPRule_Geoip:
-			if !v.Geoip.ReverseMatch {
-				posGeoip = append(posGeoip, v.Geoip)
+			// if its a .mmdb file we handle it seperatly to save memory
+			if strings.HasSuffix(v.Geoip.File, ".mmdb") {
+				if !v.Geoip.ReverseMatch {
+					posMMDB = append(posMMDB, v.Geoip)
+				} else {
+					negMMDB = append(negMMDB, v.Geoip)
+				}
 			} else {
-				negGeoip = append(negGeoip, v.Geoip)
+				if !v.Geoip.ReverseMatch {
+					posGeoip = append(posGeoip, v.Geoip)
+				} else {
+					negGeoip = append(negGeoip, v.Geoip)
+				}
 			}
 		default:
 			panic("unknown ip rule type")
 		}
 	}
 
-	subs := make([]*HeuristicIPMatcher, 0, 4)
+	subs := make([]IPMatcher, 0, 6)
 
 	if len(posCustom) > 0 {
 		ipset, err := f.CreateFromCIDRs(posCustom)
@@ -1007,13 +1018,21 @@ func buildOptimizedIPMatcher(f *IPSetFactory, rules []*IPRule) (IPMatcher, error
 		subs = append(subs, &HeuristicIPMatcher{ipset: ipset, reverse: true})
 	}
 
+	for _, r := range posMMDB {
+		subs = append(subs, newMMDBIPMatcher(r.File, r.Code, false))
+	}
+
+	for _, r := range negMMDB {
+		subs = append(subs, newMMDBIPMatcher(r.File, r.Code, true))
+	}
+
 	switch len(subs) {
 	case 0:
 		return nil, errors.New("no valid ip matcher")
 	case 1:
 		return subs[0], nil
 	default:
-		return &HeuristicMultiIPMatcher{matchers: subs}, nil
+		return &GeneralMultiIPMatcher{matchers: subs}, nil
 	}
 }
 
