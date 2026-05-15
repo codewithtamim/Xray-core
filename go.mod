@@ -11,6 +11,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/klauspost/cpuid/v2 v2.3.0
 	github.com/miekg/dns v1.1.72
+	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/pelletier/go-toml v1.9.5
 	github.com/pires/go-proxyproto v0.12.0
 	github.com/refraction-networking/utls v1.8.3-0.20260301010127-aa6edf4b11af
