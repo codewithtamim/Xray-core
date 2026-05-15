@@ -18,15 +18,15 @@ func TestMMDBLookup(t *testing.T) {
 		matched bool
 	}{
 		{"223.5.5.5", "CN", true},
-		{"1.1.1.1", "CLOUDFLARE", true},
+		{"1.1.1.1", "AU", true},
 		{"1.1.1.1", "CN", false},
-		{"8.8.8.8", "GOOGLE", true},
+		{"8.8.8.8", "US", true},
 		{"128.101.101.101", "US", true},
 		{"::1", "US", false},
 	}
 
 	for _, c := range cases {
-		matched, err := lookupMMDB("Country.mmdb", net.ParseIP(c.ip), c.code)
+		matched, err := lookupMMDB("GeoLite2-Country.mmdb", net.ParseIP(c.ip), c.code)
 		if err != nil {
 			t.Fatalf("lookupMMDB(%s, %s) error: %v", c.ip, c.code, err)
 		}
@@ -39,7 +39,7 @@ func TestMMDBLookup(t *testing.T) {
 func TestMMDBIPMatcher(t *testing.T) {
 	t.Setenv("xray.location.asset", "testdata")
 
-	m := newMMDBIPMatcher("Country.mmdb", "CN", false)
+	m := newMMDBIPMatcher("GeoLite2-Country.mmdb", "CN", false)
 
 	if !m.Match(net.ParseIP("223.5.5.5")) {
 		t.Fatal("expected 223.5.5.5 to match CN")
@@ -94,11 +94,11 @@ func TestMMDBIPMatcher(t *testing.T) {
 func TestMMDBCheckFile(t *testing.T) {
 	t.Setenv("xray.location.asset", "testdata")
 
-	if err := checkFile("Country.mmdb", "CN"); err != nil {
-		t.Fatalf("checkFile for Country.mmdb failed: %v", err)
+	if err := checkFile("GeoLite2-Country.mmdb", "CN"); err != nil {
+		t.Fatalf("checkFile for GeoLite2-Country.mmdb failed: %v", err)
 	}
-	if err := checkFile("Country.mmdb", "US"); err != nil {
-		t.Fatalf("checkFile for Country.mmdb failed: %v", err)
+	if err := checkFile("GeoLite2-Country.mmdb", "US"); err != nil {
+		t.Fatalf("checkFile for GeoLite2-Country.mmdb failed: %v", err)
 	}
 	if err := checkFile("nonexistent.mmdb", "CN"); err == nil {
 		t.Fatal("expected checkFile to fail for nonexistent.mmdb")
@@ -109,8 +109,8 @@ func TestMMDBBuildOptimizedIPMatcher(t *testing.T) {
 	t.Setenv("xray.location.asset", "testdata")
 
 	rules := []*IPRule{
-		{Value: &IPRule_Geoip{Geoip: &GeoIPRule{File: "Country.mmdb", Code: "CN", ReverseMatch: false}}},
-		{Value: &IPRule_Geoip{Geoip: &GeoIPRule{File: "Country.mmdb", Code: "US", ReverseMatch: true}}},
+		{Value: &IPRule_Geoip{Geoip: &GeoIPRule{File: "GeoLite2-Country.mmdb", Code: "CN", ReverseMatch: false}}},
+		{Value: &IPRule_Geoip{Geoip: &GeoIPRule{File: "GeoLite2-Country.mmdb", Code: "US", ReverseMatch: true}}},
 	}
 
 	m, err := buildOptimizedIPMatcher(newIPSetFactory(), rules)
@@ -134,13 +134,13 @@ func TestMMDBCloseAll(t *testing.T) {
 	t.Setenv("xray.location.asset", "testdata")
 
 	// make sure cache has something
-	_, err := lookupMMDB("Country.mmdb", net.ParseIP("1.1.1.1"), "US")
+	_, err := lookupMMDB("GeoLite2-Country.mmdb", net.ParseIP("1.1.1.1"), "US")
 	common.Must(err)
 
 	closeAllMMDB()
 
 	// after closing it should still work cuz we reopen
-	_, err = lookupMMDB("Country.mmdb", net.ParseIP("1.1.1.1"), "US")
+	_, err = lookupMMDB("GeoLite2-Country.mmdb", net.ParseIP("1.1.1.1"), "US")
 	common.Must(err)
 }
 
@@ -149,7 +149,7 @@ func TestMMDBMixedWithCustomCIDR(t *testing.T) {
 
 	rules := []*IPRule{
 		{Value: &IPRule_Custom{Custom: &CIDRRule{Cidr: &CIDR{Ip: []byte{192, 168, 0, 0}, Prefix: 16}, ReverseMatch: false}}},
-		{Value: &IPRule_Geoip{Geoip: &GeoIPRule{File: "Country.mmdb", Code: "CN", ReverseMatch: false}}},
+		{Value: &IPRule_Geoip{Geoip: &GeoIPRule{File: "GeoLite2-Country.mmdb", Code: "CN", ReverseMatch: false}}},
 	}
 
 	m, err := buildOptimizedIPMatcher(newIPSetFactory(), rules)
@@ -173,8 +173,8 @@ func TestMMDBParseIPRules(t *testing.T) {
 	t.Setenv("xray.location.asset", "testdata")
 
 	rules, err := ParseIPRules([]string{
-		"ext:Country.mmdb:CN",
-		"!ext:Country.mmdb:US",
+		"ext:GeoLite2-Country.mmdb:CN",
+		"!ext:GeoLite2-Country.mmdb:US",
 		"192.168.0.0/16",
 	})
 	common.Must(err)
@@ -194,6 +194,80 @@ func TestMMDBParseIPRules(t *testing.T) {
 	}
 	if !m.Match(net.ParseIP("192.168.1.1")) {
 		t.Fatal("expected 192.168.1.1 to match custom CIDR")
+	}
+}
+
+func TestMMDBASNLookup(t *testing.T) {
+	t.Setenv("xray.location.asset", "testdata")
+
+	cases := []struct {
+		ip      string
+		code    string
+		matched bool
+	}{
+		{"8.8.8.8", "AS15169", true},
+		{"1.1.1.1", "AS13335", true},
+		{"223.5.5.5", "AS45102", true},
+		{"1.1.1.1", "AS15169", false},
+		{"8.8.8.8", "AS13335", false},
+		{"128.101.101.101", "AS217", true},
+	}
+
+	for _, c := range cases {
+		matched, err := lookupMMDB("GeoLite2-ASN.mmdb", net.ParseIP(c.ip), c.code)
+		if err != nil {
+			t.Fatalf("lookupMMDB(%s, %s) error: %v", c.ip, c.code, err)
+		}
+		if matched != c.matched {
+			t.Fatalf("lookupMMDB(%s, %s) = %v, want %v", c.ip, c.code, matched, c.matched)
+		}
+	}
+}
+
+func TestMMDBASNMatcher(t *testing.T) {
+	t.Setenv("xray.location.asset", "testdata")
+
+	m := newMMDBIPMatcher("GeoLite2-ASN.mmdb", "AS15169", false)
+
+	if !m.Match(net.ParseIP("8.8.8.8")) {
+		t.Fatal("expected 8.8.8.8 to match AS15169")
+	}
+	if m.Match(net.ParseIP("1.1.1.1")) {
+		t.Fatal("expected 1.1.1.1 not to match AS15169")
+	}
+
+	// reverse asn
+	m.SetReverse(true)
+	if m.Match(net.ParseIP("8.8.8.8")) {
+		t.Fatal("expected 8.8.8.8 not to match reverse AS15169")
+	}
+	if !m.Match(net.ParseIP("1.1.1.1")) {
+		t.Fatal("expected 1.1.1.1 to match reverse AS15169")
+	}
+}
+
+func TestMMDBMixedCountryAndASN(t *testing.T) {
+	t.Setenv("xray.location.asset", "testdata")
+
+	rules := []*IPRule{
+		{Value: &IPRule_Geoip{Geoip: &GeoIPRule{File: "GeoLite2-Country.mmdb", Code: "CN", ReverseMatch: false}}},
+		{Value: &IPRule_Geoip{Geoip: &GeoIPRule{File: "GeoLite2-ASN.mmdb", Code: "AS15169", ReverseMatch: false}}},
+	}
+
+	m, err := buildOptimizedIPMatcher(newIPSetFactory(), rules)
+	common.Must(err)
+
+	// CN match
+	if !m.Match(net.ParseIP("223.5.5.5")) {
+		t.Fatal("expected 223.5.5.5 to match CN")
+	}
+	// ASN match
+	if !m.Match(net.ParseIP("8.8.8.8")) {
+		t.Fatal("expected 8.8.8.8 to match AS15169")
+	}
+	// neither
+	if m.Match(net.ParseIP("1.1.1.1")) {
+		t.Fatal("expected 1.1.1.1 not to match")
 	}
 }
 
