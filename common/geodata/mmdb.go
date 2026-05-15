@@ -2,6 +2,7 @@ package geodata
 
 import (
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -18,10 +19,27 @@ var (
 
 // struct for decoding the country record from mmdb
 // maxminddb uses these tags to map fields
+// registered_country is a fallback for some geoip databases
 type mmdbCountryRecord struct {
 	Country struct {
 		IsoCode string `maxminddb:"iso_code"`
 	} `maxminddb:"country"`
+	RegisteredCountry struct {
+		IsoCode string `maxminddb:"iso_code"`
+	} `maxminddb:"registered_country"`
+}
+
+func (r *mmdbCountryRecord) isoCode() string {
+	if r.Country.IsoCode != "" {
+		return r.Country.IsoCode
+	}
+	return r.RegisteredCountry.IsoCode
+}
+
+// struct for decoding asn records
+type mmdbASNRecord struct {
+	ASN          uint32 `maxminddb:"autonomous_system_number"`
+	Organization string `maxminddb:"autonomous_system_organization"`
 }
 
 // opens the mmdb file and caches the reader
@@ -58,11 +76,37 @@ func closeAllMMDB() {
 	mmdbCache = make(map[string]*maxminddb.Reader)
 }
 
-// look up an ip in the mmdb and check if it matches the country code
+// check if code is an asn code like AS15169
+func isASNCode(code string) (uint32, bool) {
+	upper := strings.ToUpper(code)
+	if !strings.HasPrefix(upper, "AS") {
+		return 0, false
+	}
+	numStr := upper[2:]
+	if numStr == "" {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(numStr, 10, 32)
+	if err != nil {
+		return 0, false
+	}
+	return uint32(n), true
+}
+
+// look up an ip in the mmdb and check if it matches the country or asn code
 func lookupMMDB(file string, ip net.IP, code string) (bool, error) {
 	reader, err := openMMDB(file)
 	if err != nil {
 		return false, err
+	}
+
+	// try asn lookup first if code looks like AS12345
+	if asnNum, ok := isASNCode(code); ok {
+		var record mmdbASNRecord
+		if err := reader.Lookup(ip, &record); err != nil {
+			return false, errors.New("failed to lookup IP in asn mmdb ", file).Base(err)
+		}
+		return record.ASN == asnNum, nil
 	}
 
 	var record mmdbCountryRecord
@@ -70,5 +114,5 @@ func lookupMMDB(file string, ip net.IP, code string) (bool, error) {
 		return false, errors.New("failed to lookup IP in mmdb ", file).Base(err)
 	}
 
-	return strings.EqualFold(record.Country.IsoCode, code), nil
+	return strings.EqualFold(record.isoCode(), code), nil
 }
